@@ -101,6 +101,7 @@ class PipelineParams(ParamGroup):
     def __init__(self, parser):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
+        self.depth_ratio = 0.0
         self.debug = False
         super().__init__(parser, "Pipeline Parameters")
 
@@ -116,26 +117,29 @@ class OptimizationParams(ParamGroup):
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
         self.map_generator_lr=1e-3*2
-        
         self.color_net_lr=5e-4
-        
         self.box_coord_lr=1
         self.warm_up_iter=0
         
         self.percent_dense = 0.01
-        self.lambda_dssim = 0.2
+        self.lambda_dssim = 0.2        
+        self.lambda_dist = 0.0 # in paper, 100~1000
+        self.lambda_normal = 0.05
         self.densification_interval = 100
         self.opacity_reset_interval = 3000
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002*2
+        self.opacity_cull = 0.05
         self.opacity_threshold=0.005
         self.random_background = False
-        
+
         self.scaling_loss_coef=0.005#*0.2
         self.lpips_loss_coef=0.005
         self.box_coord_loss_coef=0.005*0.2
+
         super().__init__(parser, "Optimization Parameters")
+
 
 def get_combined_args(parser : ArgumentParser):
     cmdlne_string = sys.argv[1:]

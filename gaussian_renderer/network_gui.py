@@ -13,6 +13,7 @@ import torch
 import traceback
 import socket
 import json
+import struct
 from scene.cameras import MiniCam
 
 host = "127.0.0.1"
@@ -47,12 +48,19 @@ def read():
     message = conn.recv(messageLength)
     return json.loads(message.decode("utf-8"))
 
-def send(message_bytes, verify):
+def send(message_bytes, verify, metrics):
     global conn
     if message_bytes != None:
         conn.sendall(message_bytes)
     conn.sendall(len(verify).to_bytes(4, 'little'))
     conn.sendall(bytes(verify, 'ascii'))
+    send_json_data(conn, metrics)
+
+def send_json_data(conn, data): # additional method to send metrics
+    serialized_data = json.dumps(data)
+    bytes_data = serialized_data.encode('utf-8')
+    conn.sendall(struct.pack('I', len(bytes_data)))
+    conn.sendall(bytes_data)
 
 def receive():
     message = read()

@@ -133,7 +133,21 @@ def safe_state(silent):
     np.random.seed(0)
     torch.manual_seed(0)
     torch.cuda.set_device(torch.device("cuda:0"))
-    
+
+def rotmat2quaternion(R, normalize=False):
+    tr = R[:, 0, 0] + R[:, 1, 1] + R[:, 2, 2] + 1e-6
+    r = torch.sqrt(1 + tr) / 2
+    # print(torch.sum(torch.isnan(r)))
+    q = torch.stack([
+        r,
+        (R[:, 2, 1] - R[:, 1, 2]) / (4 * r),
+        (R[:, 0, 2] - R[:, 2, 0]) / (4 * r),
+        (R[:, 1, 0] - R[:, 0, 1]) / (4 * r)
+    ], -1)
+    if normalize:
+        q = torch.nn.functional.normalize(q, dim=-1)
+    return q
+
 def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
     """
     Returns torch.sqrt(torch.max(0, x))
@@ -144,6 +158,7 @@ def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
     ret[positive_mask] = torch.sqrt(x[positive_mask])
     return ret
 import copy 
+
 def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
     """
     Convert rotations given as rotation matrices to quaternions.
@@ -254,3 +269,33 @@ def save_image(
     im = Image.fromarray(ndarr)
     im.save(fp, format=format)
     return ndarr
+
+
+def create_rotation_matrix_from_direction_vector_batch(direction_vectors): # from 2DGS
+    direction_vectors = direction_vectors / torch.norm(direction_vectors, dim=-1, keepdim=True)
+    v1 = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32).to(direction_vectors.device).expand(direction_vectors.shape[0], -1).clone()
+    is_collinear = torch.all(torch.abs(direction_vectors - v1) < 1e-5, dim=-1)
+    v1[is_collinear] = torch.tensor([0.0, 1.0, 0.0], dtype=torch.float32).to(direction_vectors.device)
+
+    v1 = torch.cross(direction_vectors, v1)
+    v1 = v1 / (torch.norm(v1, dim=-1, keepdim=True))
+    v2 = torch.cross(direction_vectors, v1)
+    v2 = v2 / (torch.norm(v2, dim=-1, keepdim=True))
+    rotation_matrices = torch.stack((v1, v2, direction_vectors), dim=-1)
+    return rotation_matrices
+
+def colormap(img, cmap='jet'): # from 2DGS
+    import matplotlib.pyplot as plt
+    W, H = img.shape[:2]
+    dpi = 300
+    fig, ax = plt.subplots(1, figsize=(H/dpi, W/dpi), dpi=dpi)
+    im = ax.imshow(img, cmap=cmap)
+    ax.set_axis_off()
+    fig.colorbar(im, ax=ax)
+    fig.tight_layout()
+    fig.canvas.draw()
+    data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    img = torch.from_numpy(data / 255.).float().permute(2,0,1)
+    plt.close()
+    return img
