@@ -5,7 +5,7 @@ build
 data
 *.ply
 **/PKG-INFO
-submodules
+# submodules
 **__pycache__**
 *.png
 *.out
