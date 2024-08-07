@@ -407,7 +407,7 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--render_after_train",  action='store_true', default=False)
     parser.add_argument("--metrics_after_train",  action='store_true', default=False)
-    parser.add_argument("--data_perturb", nargs="+", type=str, default=[]) #for lego ["color","occ"]
+    #parser.add_argument("--data_perturb", nargs="+", type=str, default=[]) #for lego ["color","occ"]
     
     args = parser.parse_args(sys.argv[1:])         
     args.save_iterations.append(args.iterations)     

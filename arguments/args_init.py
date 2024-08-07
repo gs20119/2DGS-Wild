@@ -7,7 +7,7 @@ import os
 
 def argument_init(args):
     
-    args.data_perturb=args.data_perturb#["color","occ"] 
+    args.data_perturb = args.data_perturb#["color","occ"] 
     if args.use_okmap:
             args.map_num=args.map_num#3
             args.map_generator_type="unet"

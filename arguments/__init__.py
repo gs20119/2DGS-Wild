@@ -60,10 +60,8 @@ class ModelParams(ParamGroup):
         self.use_colors_precomp=True#True
         self.use_decode_with_pos=False
         
-
         self.use_indep_mask_branch=False
-        
-        # self.data_perturb=[]#for lego ["color","occ"]
+        self.data_perturb=[] #for lego ["color","occ"]
         
         self.use_features_mask=True
         if self.use_features_mask:
