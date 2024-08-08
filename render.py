@@ -136,8 +136,7 @@ if __name__ == "__main__":
         os.makedirs(train_dir, exist_ok=True)
         gaussExtractor.reconstruction(train_cameras)
         gaussExtractor.export_image(train_dir)  
-        if gaussians.color_net_type in ["naive"]:
-            render_intrinsic(train_dir, train_cameras, gaussians, pipe, background) 
+        render_intrinsic(train_dir, train_cameras, gaussians, pipe, background) 
 
     if not args.skip_test and (len(scene.getTestCameras()) > 0):
         print("export rendered testing images ...")
@@ -145,8 +144,7 @@ if __name__ == "__main__":
         os.makedirs(test_dir, exist_ok=True)
         gaussExtractor.reconstruction(test_cameras)
         gaussExtractor.export_image(test_dir)
-        if gaussians.color_net_type in ["naive"]:
-            render_intrinsic(test_dir, test_cameras, gaussians, pipe, background) 
+        render_intrinsic(test_dir, test_cameras, gaussians, pipe, background) 
 
     if args.render_multiview_video: 
         render_multiview(test_dir, scene.getTestCameras(), gaussians, pipe, background)

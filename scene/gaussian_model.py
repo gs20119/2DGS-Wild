@@ -70,44 +70,15 @@ class GaussianModel:
         self.use_colors_precomp=args.use_colors_precomp
         self._pre_comp_color=torch.empty(0)
         self.coord_scale=args.coord_scale
+                
+        self.map_num=args.map_num
+        self.feature_maps_combine=args.feature_maps_combine
+                
+        self.map_generator=Unet_model(**args.map_generator_params).to(self.device)
+        self.colornet_inter_weight=1.0
+        self.projection_feature_weight=1.0
+        self.color_net=Color_net(**args.color_net_params).to(self.device)
 
-        self.use_kmap_pjmap,self.use_xw_init_box_coord,self.use_okmap,self.use_wo_adative=False,False,False,0
-        
-        if "use_kmap_pjmap" in args.__dict__.keys() and args.use_kmap_pjmap:
-            self.use_kmap_pjmap=args.use_kmap_pjmap
-            if self.use_kmap_pjmap:
-                
-                self.map_num=args.map_num
-                self.use_xw_init_box_coord=args.use_xw_init_box_coord
-                self.feature_maps_combine=args.feature_maps_combine
-                
-                if args.map_generator_type=="unet":
-                    self.map_generator=Unet_model(**args.map_generator_params).to(self.device)
-                else: raise NotImplementedError
-        elif "use_okmap" in args.__dict__.keys() and args.use_okmap:
-            self.use_okmap=args.use_okmap
-            
-            self.map_num=args.map_num
-            self.use_xw_init_box_coord=args.use_xw_init_box_coord
-            self.feature_maps_combine=args.feature_maps_combine
-            
-            if args.map_generator_type=="unet":
-                    self.map_generator=Unet_model(**args.map_generator_params).to(self.device)
-            else: raise NotImplementedError    
-        else: raise NotImplementedError
-            
-        if "use_wo_adative" in args.__dict__.keys() :
-            self.use_wo_adative=args.use_wo_adative      
-        
-        self.use_color_net=args.use_color_net
-        if self.use_color_net:
-            self.color_net_type=args.color_net_type
-            self.colornet_inter_weight=1.0
-            self.projection_feature_weight=1.0
-            if args.color_net_type=="naive":
-                self.color_net=Color_net(**args.color_net_params).to(self.device)
-            else: raise NotImplementedError
-                
         self.use_features_mask=args.use_features_mask
 
     
@@ -179,59 +150,20 @@ class GaussianModel:
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-        if self.use_kmap_pjmap and self.use_xw_init_box_coord:
-            norm_xyz=(self._xyz-self._xyz.min(dim=0)[0])/(self._xyz.max(dim=0)[0]-self._xyz.min(dim=0)[0])
-            norm_xyz=(norm_xyz-0.5)*2
-            box_coord=torch.rand(size=(self._xyz.shape[0],self.map_num,2),device="cuda")
+        norm_xyz=(self._xyz-self._xyz.min(dim=0)[0])/(self._xyz.max(dim=0)[0]-self._xyz.min(dim=0)[0])
+        norm_xyz=(norm_xyz-0.5)*2
+        box_coord=torch.rand(size=(self._xyz.shape[0],self.map_num,2),device="cuda")
             
-            for i in range(self.map_num-1):
-                rand_weight=torch.rand(size=(2,3),device="cuda")
-                rand_weight=rand_weight/rand_weight.sum(dim=-1).unsqueeze(1)
-                box_coord[:,i,:]=torch.einsum('bi,ni->nb', rand_weight, norm_xyz)*self.coord_scale
-                logging.info((f"rand sample coordinate weight: {rand_weight}"))
+        for i in range(self.map_num-1):
+            rand_weight=torch.rand(size=(2,3),device="cuda")
+            rand_weight=rand_weight/rand_weight.sum(dim=-1).unsqueeze(1)
+            box_coord[:,i,:]=torch.einsum('bi,ni->nb', rand_weight, norm_xyz)*self.coord_scale
+            logging.info((f"rand sample coordinate weight: {rand_weight}"))
             
-            box_coord[:,-1,:]=box_coord[:,-1,:]*0+256*2*2/self.downsample_resolution
-            self.box_coord=nn.Parameter(box_coord.requires_grad_(True))
+        box_coord[:,-1,:]=box_coord[:,-1,:]*0+256*2*2/self.downsample_resolution
+        self.box_coord=nn.Parameter(box_coord.requires_grad_(True))
             
-        elif self.use_okmap and self.use_xw_init_box_coord:
-            norm_xyz=(self._xyz-self._xyz.min(dim=0)[0])/(self._xyz.max(dim=0)[0]-self._xyz.min(dim=0)[0])
-            norm_xyz=(norm_xyz-0.5)*2
-            box_coord=torch.rand(size=(self._xyz.shape[0],self.map_num,2),device="cuda")
-            for i in range(self.map_num-1):
-                rand_weight=torch.rand(size=(2,3),device="cuda")
-                rand_weight=rand_weight/rand_weight.sum(dim=-1).unsqueeze(1)
-                box_coord[:,i,:]=torch.einsum('bi,ni->nb', rand_weight, norm_xyz)*self.coord_scale
-                logging.info((f"rand sample coordinate weight: {rand_weight}"))
-            # box_coord=box_coord
-            self.box_coord=nn.Parameter(box_coord.requires_grad_(True))
-        # elif ( self.use_kmap_pjmap) and not self.use_xw_init_box_coord:
-        #     box_coord=torch.cat([self._xyz.max(dim=0)[0].unsqueeze(0),self._xyz.min(dim=0)[0].unsqueeze(0)]).detach().to(self._xyz.device)
-        #     box_coord[0,:]+=0.02*(box_coord[0]-box_coord[1])#3,2
-        #     box_coord[1,:]-=0.02*(box_coord[0]-box_coord[1])
-            
-        #     box_coord=box_coord.unsqueeze(0).repeat(self._xyz.shape[0],1,1)
-        #     if self.map_num>4:
-        #         norm_xyz=(self._xyz-self._xyz.min(dim=0)[0])/(self._xyz.max(dim=0)[0]-self._xyz.min(dim=0)[0])
-        #         norm_xyz=(norm_xyz-0.5)*2
-        #         for i in range(self.map_num-4):
-        #             rand_init_pos=(torch.rand(size=(self._xyz.shape[0],1,3),device=box_coord.device))#
-        #             box_coord=torch.cat([box_coord,rand_init_pos],dim=1)
-        #             rand_weight=torch.rand(size=(2,3),device="cuda")
-        #             rand_weight=rand_weight/rand_weight.sum(dim=-1).unsqueeze(1)
-        #             box_coord[:,-1,:2]=torch.einsum('bi,ni->nb', rand_weight, norm_xyz)*self.coord_scale
-                
-            
-        #     rand_init_pos=(torch.rand(size=(self._xyz.shape[0],1,3),device=box_coord.device))#
-        #     box_coord=torch.cat([box_coord,rand_init_pos],dim=1)
-        #     box_coord[:,-1,:]=box_coord[:,-1,:]*0+256*2*2/self.downsample_resolution
-        #     self.box_coord=nn.Parameter(box_coord.requires_grad_(True))
-            
-        else: raise NotImplementedError
-        
-        if (self.use_kmap_pjmap) and self.use_wo_adative:
-            self.box_coord1=nn.Parameter(box_coord[:,-1,:].detach().requires_grad_(True))
-            self.box_coord2=nn.Parameter(box_coord[:,:-1,:].detach().requires_grad_(False))
-            
+
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")      
@@ -239,7 +171,6 @@ class GaussianModel:
 
         l = [
             {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
-            
             {'params': [self._features_intrinsic], 'lr': training_args.feature_lr / 20.0, "name": "f_intr"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
@@ -247,50 +178,51 @@ class GaussianModel:
         ]
         self.prune_params_names=["xyz","f_intr","opacity","scaling","rotation"]
        
-        
-        if self.use_kmap_pjmap or self.use_okmap:
-            l.extend( [
-                {'params': self.map_generator.parameters(), 'lr': training_args.map_generator_lr, "name": "map_generator"},
-            ])
-            
-            if (self.use_kmap_pjmap) and self.use_wo_adative:
-                l.extend( [
-                    {'params': self.box_coord1, 'lr': training_args.box_coord_lr, "name": "box_coord"},
-                        ] )
-            else:
-                l.extend( [
-                    {'params': self.box_coord, 'lr': training_args.box_coord_lr, "name": "box_coord"},
-                        ] )
-            self.prune_params_names.append("box_coord")
+        l.extend([{
+            'params': self.map_generator.parameters(), 
+            'lr': training_args.map_generator_lr, 
+            "name": "map_generator"},
+        ])
 
-            
-        if self.use_color_net:
-            l.extend( [
-                {'params': self.color_net.parameters(), 'lr': training_args.color_net_lr, "name": "color_net"},
-            ])
+        l.extend([{
+            'params': self.box_coord, 
+            'lr': training_args.box_coord_lr, 
+            "name": "box_coord"},
+        ])
+        self.prune_params_names.append("box_coord")
+    
+        l.extend([{
+            'params': self.color_net.parameters(), 
+            'lr': training_args.color_net_lr, 
+            "name": "color_net"},
+        ])
 
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
-                                                    lr_final=training_args.position_lr_final*self.spatial_lr_scale,
-                                                    lr_delay_mult=training_args.position_lr_delay_mult,             
-                                                    max_steps=training_args.position_lr_max_steps)
-        if (self.use_kmap_pjmap or self.use_okmap ):
-            self.map_generator_scheduler_args=get_expon_lr_func(lr_init=training_args.map_generator_lr*1,
-                                                        lr_final=training_args.map_generator_lr*0.1,
-                                                        lr_delay_mult=0.1,
-                                                        max_steps=training_args.position_lr_max_steps)
+        self.xyz_scheduler_args = get_expon_lr_func(
+            lr_init=training_args.position_lr_init*self.spatial_lr_scale,
+            lr_final=training_args.position_lr_final*self.spatial_lr_scale,
+            lr_delay_mult=training_args.position_lr_delay_mult,             
+            max_steps=training_args.position_lr_max_steps)
+
+        self.map_generator_scheduler_args=get_expon_lr_func(
+            lr_init=training_args.map_generator_lr*1,
+            lr_final=training_args.map_generator_lr*0.1,
+            lr_delay_mult=0.1,
+            max_steps=training_args.position_lr_max_steps)
             
-            self.box_coord_scheduler_args = get_expon_lr_func(lr_init=training_args.box_coord_lr*1,
-                                                    lr_final=training_args.box_coord_lr*0.01,
-                                                    lr_delay_mult=0.1,
-                                                    max_steps=training_args.position_lr_max_steps)
+        self.box_coord_scheduler_args = get_expon_lr_func(
+            lr_init=training_args.box_coord_lr*1,
+            lr_final=training_args.box_coord_lr*0.01,
+            lr_delay_mult=0.1,
+            max_steps=training_args.position_lr_max_steps)
+
 
     def update_learning_rate(self, iteration,warm_up_iter=0):
         ''' Learning rate scheduling per step '''
         lrs=[]
         length_update=1
-        if (self.use_kmap_pjmap or self.use_okmap) and iteration>warm_up_iter:
+        if iteration>warm_up_iter:  
             length_update+=2
             
         for param_group in self.optimizer.param_groups:
@@ -299,7 +231,7 @@ class GaussianModel:
                 param_group['lr'] = lr
                 lrs.append(lr)
                 
-            elif (self.use_kmap_pjmap or self.use_okmap) and iteration>warm_up_iter:
+            elif iteration>warm_up_iter: 
                 if param_group["name"]=="box_coord":           
                     lr=self.box_coord_scheduler_args(iteration)
                     param_group["lr"]=lr
@@ -321,9 +253,6 @@ class GaussianModel:
 
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
-        # All channels except the 3 DC
-        # for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
-        #     l.append('f_dc_{}'.format(i))
         for i in range(self._features_intrinsic.shape[1]*self._features_intrinsic.shape[2]):
             l.append('f_intr_{}'.format(i))
         l.append('opacity')
@@ -357,21 +286,12 @@ class GaussianModel:
         PlyData([el]).write(path)
         root_path=os.path.dirname(path)
         other_atrributes_dict={"non":torch.rand(1,1)}
-        if self.use_kmap_pjmap or self.use_okmap :
-            torch.save(self.map_generator.state_dict(),os.path.join(root_path, "map_generator.pth"))
-            
-            if (self.use_kmap_pjmap ) and self.use_wo_adative:
-                other_atrributes_dict["box_coord1"]=self.box_coord1
-                other_atrributes_dict["box_coord2"]=self.box_coord2
-            else:
-                other_atrributes_dict["box_coord"]=self.box_coord
 
-        if self.use_color_net:
-            torch.save(self.color_net.state_dict(),os.path.join(root_path, "color_net.pth"))
-
+        torch.save(self.map_generator.state_dict(),os.path.join(root_path, "map_generator.pth"))
+        other_atrributes_dict["box_coord"]=self.box_coord
+        torch.save(self.color_net.state_dict(),os.path.join(root_path, "color_net.pth"))
         torch.save(other_atrributes_dict,os.path.join(root_path, "other_atrributes_dict.pth"))
         
-
 
     def reset_opacity(self):          
         opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))  
@@ -393,7 +313,6 @@ class GaussianModel:
         features_extra = np.zeros((xyz.shape[0], len(extra_f_names)))
         for idx, attr_name in enumerate(extra_f_names):
             features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
-        # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)  3, (self.max_sh_degree + 1) ** 2 - 1)
         features_extra = features_extra.reshape((features_extra.shape[0], 3,(self.max_sh_degree + 1) ** 2))
 
         scale_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")]
@@ -419,19 +338,13 @@ class GaussianModel:
         self.active_sh_degree = self.max_sh_degree
         other_atrributes_dict=torch.load(os.path.join(root_path,"other_atrributes_dict.pth"),map_location="cpu")
         
-        if  self.use_kmap_pjmap or self.use_okmap:
-            self.map_generator.load_state_dict(torch.load(os.path.join(root_path,"map_generator.pth"),map_location="cpu"))
-            self.map_generator=self.map_generator.to(self.device)
+        self.map_generator.load_state_dict(torch.load(os.path.join(root_path,"map_generator.pth"),map_location="cpu"))
+        self.map_generator=self.map_generator.to(self.device)
             
-            if (self.use_kmap_pjmap ) and self.use_wo_adative:
-                self.box_coord1=other_atrributes_dict["box_coord1"].to(self.device)
-                self.box_coord2=other_atrributes_dict["box_coord2"].to(self.device)
-            else:
-                self.box_coord=other_atrributes_dict["box_coord"].to(self.device)
+        self.box_coord=other_atrributes_dict["box_coord"].to(self.device)
                 
-        if self.use_color_net:
-            self.color_net.load_state_dict(torch.load(os.path.join(root_path,"color_net.pth"),map_location="cpu"))
-            self.color_net=self.color_net.to(self.device)
+        self.color_net.load_state_dict(torch.load(os.path.join(root_path,"color_net.pth"),map_location="cpu"))
+        self.color_net = self.color_net.to(self.device)
 
         
         
@@ -444,56 +357,31 @@ class GaussianModel:
         
         view_direction=(_xyz - camera_center.repeat(_xyz.shape[0], 1))
         view_direction=view_direction/(view_direction.norm(dim=1, keepdim=True)+1e-5)
-        if self.use_okmap:
-            out_gen=self.map_generator(img.unsqueeze(0),eval_mode=self.eval_mode)
-            feature_maps=out_gen["feature_maps"]
-            
-            if self.use_features_mask:
-                self.features_mask=out_gen["mask"]  
-            feature_maps=feature_maps.reshape(self.map_num,-1,feature_maps.shape[-2],feature_maps.shape[-1])
-            _point_features,self.map_pts_norm=sample_from_feature_maps_v2(feature_maps[:self.map_num,...],_xyz,self.box_coord[:,:self.map_num,:],self.feature_maps_combine)
 
-                
-        elif  self.use_kmap_pjmap:
-            out_gen=self.map_generator(img.unsqueeze(0),eval_mode=self.eval_mode)
-            feature_maps=out_gen["feature_maps"]
+        out_gen=self.map_generator(img.unsqueeze(0),eval_mode=self.eval_mode)
+        feature_maps=out_gen["feature_maps"]
             
-            if self.use_features_mask:
-                self.features_mask=out_gen["mask"]
-            if self.use_kmap_pjmap:
-                if self.use_wo_adative:
-                    box_coord1,box_coord2=self.box_coord1,self.box_coord2
-                else:
-                    box_coord1,box_coord2=self.box_coord[:,-1,:],self.box_coord[:,:self.map_num-1,:]
-                feature_maps=feature_maps.reshape(self.map_num,-1,feature_maps.shape[-2],feature_maps.shape[-1])
-                if self.use_xw_init_box_coord:
-                    _point_features0=torch.empty(0)
-  
-                    if self.map_num-1>0:
-                        _point_features0,self.map_pts_norm=sample_from_feature_maps(feature_maps[:self.map_num-1,...],_xyz,box_coord2,self.coord_scale,self.feature_maps_combine)
-                    _point_features1,project_mask=project2d(_xyz,viewpoint_camera.world_view_transform,viewpoint_camera.intrinsic_martix,box_coord1,feature_maps[-1,...].unsqueeze(0))
-                else: raise NotImplementedError
-                    # _point_features0,self.map_pts_norm=sample_from_feature_maps(feature_maps[:self.map_num-1,...],_xyz,box_coord2,self.coord_scale,self.feature_maps_combine)
-                    # _point_features1,project_mask=project2d(_xyz,viewpoint_camera.world_view_transform,viewpoint_camera.intrinsic_martix,box_coord1,feature_maps[-1,...].unsqueeze(0))
-                
-            _point_features=torch.cat([_point_features0,_point_features1],dim=1)
+        if self.use_features_mask:
+            self.features_mask=out_gen["mask"]
+
+        box_coord1,box_coord2=self.box_coord[:,-1,:],self.box_coord[:,:self.map_num-1,:]
+        
+        feature_maps=feature_maps.reshape(self.map_num,-1,feature_maps.shape[-2],feature_maps.shape[-1])
+        _point_features0=torch.empty(0)
+        if self.map_num>1:
+            _point_features0,self.map_pts_norm=sample_from_feature_maps(feature_maps[:self.map_num-1,...],_xyz,box_coord2,self.coord_scale,self.feature_maps_combine)
+        _point_features1,project_mask=project2d(_xyz,viewpoint_camera.world_view_transform,viewpoint_camera.intrinsic_martix,box_coord1,feature_maps[-1,...].unsqueeze(0))
+        _point_features=torch.cat([_point_features0,_point_features1],dim=1)
        
-        if self.use_color_net:
-            if self.use_colors_precomp:
-                if self.color_net_type in ["naive"]:
-                    self._pre_comp_color=self.color_net(_xyz,_features_intrinsic,_point_features,view_direction,\
-                        inter_weight=self.colornet_inter_weight,store_cache=store_cache)
-                else: raise NotImplementedError
-            else:
-                if self.color_net_type in ["naive"]:
-                    features_dealed=self.color_net(_xyz,_features_intrinsic,_point_features,view_direction,\
-                        inter_weight=self.colornet_inter_weight,store_cache=store_cache)
-                else: raise NotImplementedError
-                
-                self._features_dealed=features_dealed
+        if self.use_colors_precomp:
+            self._pre_comp_color=self.color_net(
+                _xyz, _features_intrinsic, _point_features,view_direction,\
+                inter_weight=self.colornet_inter_weight, store_cache=store_cache)
         else:
-            
-            self._features_dealed=_features_intrinsic
+            features_dealed=self.color_net(
+                _xyz, _features_intrinsic, _point_features, view_direction,\
+                inter_weight=self.colornet_inter_weight, store_cache=store_cache)
+            self._features_dealed=features_dealed
             
         self._opacity_dealed=_opacity
         self._point_features=_point_features
@@ -507,9 +395,7 @@ class GaussianModel:
         view_direction=view_direction/(view_direction.norm(dim=1, keepdim=True)+1e-5)
         
         if self.use_colors_precomp:
-            if self.color_net_type in ["naive"]:
-                self._pre_comp_color=self.color_net.forward_cache(_xyz,view_direction)
-            else: raise NotImplementedError
+            self._pre_comp_color = self.color_net.forward_cache(_xyz,view_direction)
             
         self.view_direction=view_direction
         self._xyz_dealed=_xyz
@@ -564,12 +450,8 @@ class GaussianModel:
         self._rotation = optimizable_tensors["rotation"]
         
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
-        if (self.use_kmap_pjmap or self.use_okmap) :
-            if (self.use_kmap_pjmap ) and self.use_wo_adative:
-                self.box_coord1=optimizable_tensors["box_coord"]
-                self.box_coord2=self.box_coord2[valid_points_mask]
-            else:
-                self.box_coord=optimizable_tensors["box_coord"]
+
+        self.box_coord=optimizable_tensors["box_coord"]
         
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
@@ -599,7 +481,7 @@ class GaussianModel:
 
         return optimizable_tensors
     
-    #
+    
     def densification_postfix(self, new_tensor):
 
         optimizable_tensors = self.cat_tensors_to_optimizer(new_tensor)
@@ -611,22 +493,16 @@ class GaussianModel:
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
 
-        if ( self.use_kmap_pjmap or self.use_okmap) :
-            if (self.use_kmap_pjmap ) and self.use_wo_adative:
-                self.box_coord1=optimizable_tensors["box_coord"]
-                self.box_coord2=torch.cat((self.box_coord2,new_tensor["box_coord2"]),dim=0)
-            else:
-                self.box_coord=optimizable_tensors["box_coord"]
+        self.box_coord=optimizable_tensors["box_coord"]
         
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
     
-    #2 
+    
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
         new_tensor={}
         n_init_points = self.get_xyz.shape[0]
-        # Extract points that satisfy the gradient condition
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
         selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
@@ -644,21 +520,13 @@ class GaussianModel:
         new_tensor["opacity"]  = self._opacity[selected_pts_mask].repeat(N,1)
         new_tensor["rotation"]  = self._rotation[selected_pts_mask].repeat(N,1)         
         new_tensor["f_intr"]  = self._features_intrinsic[selected_pts_mask].repeat(N,1,1)
-        
- 
-        if (self.use_kmap_pjmap or self.use_okmap) :
-            if (self.use_kmap_pjmap ) and self.use_wo_adative:
-                new_tensor["box_coord"]=self.box_coord1[selected_pts_mask].repeat(N,1)
-                new_tensor["box_coord2"]=self.box_coord2[selected_pts_mask].repeat(N,1,1)
-            else:
-                new_tensor["box_coord"]=self.box_coord[selected_pts_mask].repeat(N,1,1)
+        new_tensor["box_coord"]=self.box_coord[selected_pts_mask].repeat(N,1,1)
 
         self.densification_postfix(new_tensor)
-
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))    #
-       
         self.prune_points(prune_filter)    
     
+
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
         # Extract points that satisfy the gradient condition
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)      
@@ -666,22 +534,15 @@ class GaussianModel:
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)  #
         new_tensor={}
         new_tensor["xyz"] = self._xyz[selected_pts_mask]            
-        
         new_tensor["f_intr"] = self._features_intrinsic[selected_pts_mask]
         new_tensor["opacity"]  = self._opacity[selected_pts_mask]
         new_tensor["scaling"]  = self._scaling[selected_pts_mask]
         new_tensor["rotation"]  = self._rotation[selected_pts_mask]
-
-        if (self.use_kmap_pjmap or self.use_okmap) :
-            if (self.use_kmap_pjmap ) and self.use_wo_adative:
-                new_tensor["box_coord"]=self.box_coord1[selected_pts_mask]
-                new_tensor["box_coord2"]=self.box_coord2[selected_pts_mask]
-            else:
-                new_tensor["box_coord"]=self.box_coord[selected_pts_mask]
+        new_tensor["box_coord"]=self.box_coord[selected_pts_mask]
         
         self.densification_postfix(new_tensor)
 
-    #####
+
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
@@ -709,21 +570,15 @@ class GaussianModel:
     def set_eval(self,eval=True):
         if eval:
             self.eval_mode=True
-
-            if self.use_color_net:
-                self.color_net=self.color_net.eval()
-                self.color_net_origin_use_drop_out=self.color_net.use_drop_out
-                self.color_net.use_drop_out=False
-                
-            if  self.use_kmap_pjmap or self.use_okmap: 
-                self.origin_use_features_mask=self.map_generator.use_features_mask
-                self.map_generator.use_features_mask=False
-                self.use_features_mask=False
+            self.color_net=self.color_net.eval()
+            self.color_net_origin_use_drop_out=self.color_net.use_drop_out
+            self.color_net.use_drop_out=False
+            self.origin_use_features_mask=self.map_generator.use_features_mask
+            self.map_generator.use_features_mask=False
+            self.use_features_mask=False
         else:
             self.eval_mode=False
-            if self.use_color_net:
-                self.color_net=self.color_net.train()
-                self.color_net.use_drop_out=self.color_net_origin_use_drop_out
-            if self.use_kmap_pjmap or self.use_okmap: 
-                self.use_features_mask=self.origin_use_features_mask
-                self.map_generator.use_features_mask=self.origin_use_features_mask
+            self.color_net=self.color_net.train()
+            self.color_net.use_drop_out=self.color_net_origin_use_drop_out
+            self.use_features_mask=self.origin_use_features_mask
+            self.map_generator.use_features_mask=self.origin_use_features_mask

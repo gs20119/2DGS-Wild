@@ -51,7 +51,7 @@ class ModelParams(ParamGroup):
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
-        self._resolution = 1#-1
+        self._resolution = 1 #-1
         self._white_background = False
         self.data_device = "cuda"
         self.eval = False
@@ -67,21 +67,7 @@ class ModelParams(ParamGroup):
         if self.use_features_mask:
             self.features_mask_loss_coef=0.15
             self.features_mask_iters=2500
-        
-        self.use_okmap=False #only use k feature maps
-        self.use_kmap_pjmap=True # use k and projection feature maps
-        
-        #(num_prjection + K)feature maps 
-        # K=2 or 3 is ok   
-        if self.use_kmap_pjmap:
-            self.map_num=1+2 
-        elif self.use_okmap:
-            self.map_num=2
-        
-        self.use_wo_adative=0  #without adaptive
-        #init the coordinate with random weighted xyz
-        self.use_xw_init_box_coord=True 
-        self.use_color_net=True
+        self.map_num=1+2 
 
         self.use_scaling_loss=False    
         self.use_lpips_loss=True
@@ -121,7 +107,7 @@ class OptimizationParams(ParamGroup):
         
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2        
-        self.lambda_dist = 0.0 # in paper, 100~1000
+        self.lambda_dist = 1000 # in paper, 100~1000
         self.lambda_normal = 0.05
         self.densification_interval = 100
         self.opacity_reset_interval = 3000
@@ -132,7 +118,7 @@ class OptimizationParams(ParamGroup):
         self.opacity_threshold=0.005
         self.random_background = False
 
-        self.scaling_loss_coef=0.005#*0.2
+        self.scaling_loss_coef=0.005 #*0.2
         self.lpips_loss_coef=0.005
         self.box_coord_loss_coef=0.005*0.2
 
@@ -154,7 +140,6 @@ def get_combined_args(parser : ArgumentParser):
         print("Config file not found at")
         pass
     args_cfgfile = eval(cfgfile_string)
-    #args_cfgfile args_cmdline
     merged_dict = vars(args_cfgfile).copy()
     for k,v in vars(args_cmdline).items():
         if v != None:

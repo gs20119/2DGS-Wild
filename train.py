@@ -107,7 +107,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, debug_fr
         lpips_criteria = lpips.LPIPS(net='vgg').to("cuda:0")
     logging.info(f"Start trainning....")
 
-    if args.warm_up_iter>0: # TODO
+    if args.warm_up_iter>0: 
         gaussians.set_learning_rate("box_coord",0.0) 
     
     #from torch import autograd
@@ -142,22 +142,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, debug_fr
             Ll1 = l1_loss(image*mask, gt_image*mask)                        
             loss = (1.0-opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0-ssim(image*mask, gt_image*mask))
             loss += (torch.square(1-gaussians.features_mask)).mean()*args.features_mask_loss_coef
-            
         else:
             Ll1 = l1_loss(image, gt_image)                     
             loss = (1.0-opt.lambda_dssim) * Ll1 + opt.lambda_dssim*(1.0-ssim(image, gt_image))
 
-        # Gaussian-Wild regularization
-        if args.use_scaling_loss:
-            loss += torch.abs(gaussians.get_scaling).mean()*args.scaling_loss_coef
-
         if args.use_lpips_loss: 
             loss += lpips_criteria(image,gt_image).mean()*args.lpips_loss_coef
 
-        if (gaussians.use_kmap_pjmap or gaussians.use_okmap) and args.use_box_coord_loss:
-            loss += torch.relu(torch.abs(gaussians.map_pts_norm)-1).mean()*args.box_coord_loss_coef
+        # Gaussian-Wild regularization
+        if args.use_scaling_loss:
+            loss += torch.abs(gaussians.get_scaling).mean()*args.scaling_loss_coef # L_sc (scaling)
 
-        # 2DGS regularization TODO
+        if args.use_box_coord_loss:
+            loss += torch.relu(torch.abs(gaussians.map_pts_norm)-1).mean()*args.box_coord_loss_coef # L_vm (visibility map)
+
+        # 2DGS regularization 
         lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
 
@@ -265,7 +264,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, debug_fr
     fig = plt.figure()
     logging.info("Drawing Training loss curve")
     print("\nDrawing Training loss curve")
-    plt.plot(record_loss)
+    plt.plot(record_loss[150:])
     plt.xlabel('Epochs')
     plt.ylabel('Training loss')
     plt.title('Training error curve')
@@ -291,9 +290,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, debug_fr
             gaussExtractor.reconstruction(scene.getTrainCameras())
             gaussExtractor.export_image(train_dir) 
 
-            if gaussians.color_net_type in ["naive"]:
-                logging.info(f"Rendering training set's intrinsic image [{len(scene.getTrainCameras())}]...")
-                render_intrinsic(train_dir, scene.getTrainCameras(), gaussians, pipe, background)
+            #if gaussians.color_net_type in ["naive"]:
+            logging.info(f"Rendering training set's intrinsic image [{len(scene.getTrainCameras())}]...")
+            render_intrinsic(train_dir, scene.getTrainCameras(), gaussians, pipe, background)
                 
             if args.metrics_after_train:
                 logging.info("Evaluating metrics on testing set...")
